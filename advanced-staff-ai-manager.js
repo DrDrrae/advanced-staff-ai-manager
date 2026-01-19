@@ -996,11 +996,11 @@
             });
         },
 
-        isZoneMostlyWater: function(x1, y1, x2, y2) {
-            // Sample tiles in the zone to determine if it's mostly water
-            // A zone is considered "mostly water" if >80% of sampled tiles are water
+        isZoneValid: function(x1, y1, x2, y2) {
+            // Check if a zone is valid for patrol (not water, in owned area)
+            // A zone is invalid if >80% of sampled tiles are water OR not owned
             var sampleCount = 0;
-            var waterCount = 0;
+            var invalidCount = 0;
             var stepX = Math.max(1, Math.floor((x2 - x1) / 4)); // Sample at 5 points per dimension
             var stepY = Math.max(1, Math.floor((y2 - y1) / 4));
             
@@ -1009,22 +1009,39 @@
                     for (var y = y1; y <= y2; y += stepY) {
                         sampleCount++;
                         var tile = map.getTile(Math.floor(x), Math.floor(y));
-                        if (tile && tile.elements && tile.elements.length > 0) {
-                            var surfaceElement = tile.elements[0];
-                            // Check if surface element has water
-                            if (surfaceElement && surfaceElement.type === 'surface' && surfaceElement.waterHeight > 0) {
-                                waterCount++;
-                            }
+                        if (!tile || !tile.elements || tile.elements.length === 0) {
+                            // No tile or no elements - consider invalid
+                            invalidCount++;
+                            continue;
+                        }
+                        
+                        var surfaceElement = tile.elements[0];
+                        if (!surfaceElement || surfaceElement.type !== 'surface') {
+                            // No surface element - consider invalid
+                            invalidCount++;
+                            continue;
+                        }
+                        
+                        // Check if tile has water
+                        if (surfaceElement.waterHeight > 0) {
+                            invalidCount++;
+                            continue;
+                        }
+                        
+                        // Check if tile is owned
+                        if (!surfaceElement.hasOwnership) {
+                            invalidCount++;
+                            continue;
                         }
                     }
                 }
             } catch (e) {
-                // If we can't check, assume it's not water to avoid breaking zones
+                // If we can't check (e.g., out of bounds), consider zone invalid
                 return false;
             }
             
-            // Consider zone mostly water if >80% of samples are water
-            return sampleCount > 0 && (waterCount / sampleCount) > 0.8;
+            // Zone is valid only if <20% of samples are invalid
+            return sampleCount > 0 && (invalidCount / sampleCount) < 0.2;
         },
 
         setStaffPatrolArea: function(staffId, x1, y1, x2, y2, mode) {
@@ -1084,7 +1101,7 @@
                 var x2 = Math.min((zx + 1) * zoneSize + CONFIG.patrolZoneOverlap, mapWidth - 1);
                 var y2 = Math.min((zy + 1) * zoneSize + CONFIG.patrolZoneOverlap, mapHeight - 1);
                 
-                if (!this.isZoneMostlyWater(x1, y1, x2, y2)) {
+                if (this.isZoneValid(x1, y1, x2, y2)) {
                     validZones.push({ x1: x1, y1: y1, x2: x2, y2: y2 });
                 }
             }
@@ -1136,7 +1153,7 @@
                     var x2 = Math.min((zx + 1) * zoneSize, mapWidth - 1);
                     var y2 = Math.min((zy + 1) * zoneSize, mapHeight - 1);
                     
-                    if (!this.isZoneMostlyWater(x1, y1, x2, y2)) {
+                    if (this.isZoneValid(x1, y1, x2, y2)) {
                         validZones.push({ x1: x1, y1: y1, x2: x2, y2: y2 });
                     }
                 }
