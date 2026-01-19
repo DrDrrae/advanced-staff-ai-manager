@@ -1071,38 +1071,36 @@
             try { mapWidth = map.size.x; mapHeight = map.size.y; } catch (e) {}
             var zoneSize = CONFIG.patrolZoneSize;
             var zonesX = Math.ceil(mapWidth / zoneSize);
-            var totalZones = zonesX * Math.ceil(mapHeight / zoneSize);
+            var zonesY = Math.ceil(mapHeight / zoneSize);
+            var totalZones = zonesX * zonesY;
 
+            // Pre-scan to find all non-water zones
+            var validZones = [];
+            for (var zi = 0; zi < totalZones; zi++) {
+                var zx = zi % zonesX;
+                var zy = Math.floor(zi / zonesX);
+                var x1 = zx * zoneSize;
+                var y1 = zy * zoneSize;
+                var x2 = Math.min((zx + 1) * zoneSize + CONFIG.patrolZoneOverlap, mapWidth - 1);
+                var y2 = Math.min((zy + 1) * zoneSize + CONFIG.patrolZoneOverlap, mapHeight - 1);
+                
+                if (!this.isZoneMostlyWater(x1, y1, x2, y2)) {
+                    validZones.push({ x1: x1, y1: y1, x2: x2, y2: y2 });
+                }
+            }
+
+            // Assign handymen to valid zones, distributing evenly
             for (var i = 0; i < this.handymen.length; i++) {
                 var handyman = this.handymen[i];
                 if (!handyman || typeof handyman.id !== 'number') continue;
                 
-                // Find a non-water zone for this handyman
-                var assigned = false;
-                var attempts = 0;
-                var zoneIndex = i % totalZones;
-                
-                while (!assigned && attempts < totalZones) {
-                    var zx = zoneIndex % zonesX;
-                    var zy = Math.floor(zoneIndex / zonesX);
-                    var x1 = zx * zoneSize;
-                    var y1 = zy * zoneSize;
-                    var x2 = Math.min((zx + 1) * zoneSize + CONFIG.patrolZoneOverlap, mapWidth - 1);
-                    var y2 = Math.min((zy + 1) * zoneSize + CONFIG.patrolZoneOverlap, mapHeight - 1);
-                    
-                    // Check if zone is mostly water
-                    if (!this.isZoneMostlyWater(x1, y1, x2, y2)) {
-                        this.setStaffPatrolArea(handyman.id, x1, y1, x2, y2, 0);
-                        assigned = true;
-                    } else {
-                        // Try next zone
-                        zoneIndex = (zoneIndex + 1) % totalZones;
-                        attempts++;
-                    }
-                }
-                
-                // If all zones are water (unlikely), assign to center of map
-                if (!assigned) {
+                if (validZones.length > 0) {
+                    // Distribute evenly across valid zones
+                    var zoneIdx = i % validZones.length;
+                    var zone = validZones[zoneIdx];
+                    this.setStaffPatrolArea(handyman.id, zone.x1, zone.y1, zone.x2, zone.y2, 0);
+                } else {
+                    // Fallback: if all zones are water, assign to center of map
                     var centerX = Math.floor(mapWidth / 2);
                     var centerY = Math.floor(mapHeight / 2);
                     this.setStaffPatrolArea(handyman.id, 
@@ -1125,37 +1123,36 @@
                 // Fallback to grid - skip water zones
                 var zoneSize = CONFIG.patrolZoneSize * 2;
                 var zonesX = Math.ceil(mapWidth / zoneSize);
-                var totalZones = zonesX * Math.ceil(mapHeight / zoneSize);
+                var zonesY = Math.ceil(mapHeight / zoneSize);
+                var totalZones = zonesX * zonesY;
+                
+                // Pre-scan to find all non-water zones
+                var validZones = [];
+                for (var zi = 0; zi < totalZones; zi++) {
+                    var zx = zi % zonesX;
+                    var zy = Math.floor(zi / zonesX);
+                    var x1 = zx * zoneSize;
+                    var y1 = zy * zoneSize;
+                    var x2 = Math.min((zx + 1) * zoneSize, mapWidth - 1);
+                    var y2 = Math.min((zy + 1) * zoneSize, mapHeight - 1);
+                    
+                    if (!this.isZoneMostlyWater(x1, y1, x2, y2)) {
+                        validZones.push({ x1: x1, y1: y1, x2: x2, y2: y2 });
+                    }
+                }
+                
+                // Assign mechanics to valid zones, distributing evenly
                 for (var k = 0; k < this.mechanics.length; k++) {
                     var mech = this.mechanics[k];
                     if (!mech || typeof mech.id !== 'number') continue;
                     
-                    // Find a non-water zone for this mechanic
-                    var assigned = false;
-                    var attempts = 0;
-                    var zoneIndex = k % totalZones;
-                    
-                    while (!assigned && attempts < totalZones) {
-                        var zx = zoneIndex % zonesX;
-                        var zy = Math.floor(zoneIndex / zonesX);
-                        var x1 = zx * zoneSize;
-                        var y1 = zy * zoneSize;
-                        var x2 = Math.min((zx + 1) * zoneSize, mapWidth - 1);
-                        var y2 = Math.min((zy + 1) * zoneSize, mapHeight - 1);
-                        
-                        // Check if zone is mostly water
-                        if (!this.isZoneMostlyWater(x1, y1, x2, y2)) {
-                            this.setStaffPatrolArea(mech.id, x1, y1, x2, y2, 0);
-                            assigned = true;
-                        } else {
-                            // Try next zone
-                            zoneIndex = (zoneIndex + 1) % totalZones;
-                            attempts++;
-                        }
-                    }
-                    
-                    // If all zones are water (unlikely), assign to center of map
-                    if (!assigned) {
+                    if (validZones.length > 0) {
+                        // Distribute evenly across valid zones
+                        var zoneIdx = k % validZones.length;
+                        var zone = validZones[zoneIdx];
+                        this.setStaffPatrolArea(mech.id, zone.x1, zone.y1, zone.x2, zone.y2, 0);
+                    } else {
+                        // Fallback: if all zones are water, assign to center of map
                         var centerX = Math.floor(mapWidth / 2);
                         var centerY = Math.floor(mapHeight / 2);
                         this.setStaffPatrolArea(mech.id, 
