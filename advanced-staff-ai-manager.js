@@ -1001,7 +1001,7 @@
             // A zone is considered "mostly water" if >80% of sampled tiles are water
             var sampleCount = 0;
             var waterCount = 0;
-            var stepX = Math.max(1, Math.floor((x2 - x1) / 4)); // Sample ~5x5 grid
+            var stepX = Math.max(1, Math.floor((x2 - x1) / 4)); // Sample at 5 points per dimension
             var stepY = Math.max(1, Math.floor((y2 - y1) / 4));
             
             try {
@@ -1012,10 +1012,8 @@
                         if (tile && tile.elements && tile.elements.length > 0) {
                             var surfaceElement = tile.elements[0];
                             // Check if surface element has water
-                            if (surfaceElement && surfaceElement.type === 'surface') {
-                                if (surfaceElement.waterHeight > 0) {
-                                    waterCount++;
-                                }
+                            if (surfaceElement && surfaceElement.type === 'surface' && surfaceElement.waterHeight > 0) {
+                                waterCount++;
                             }
                         }
                     }
