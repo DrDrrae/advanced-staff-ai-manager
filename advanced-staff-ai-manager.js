@@ -948,7 +948,7 @@
                 }
                 
                 // Wait for configured number of weeks before auto-hiring
-                // 1 week = 2 months in RCT2 time (each month is 4 days, week is 7 days)
+                // In RCT2, each month is 4 game days. A week is ~7 days, so approximately 2 months per week.
                 var weeksElapsed = (date.monthsElapsed - this.parkStartMonthsElapsed) / 2.0;
                 if (weeksElapsed < CONFIG.autoHireMinWeeks) return;
                 
