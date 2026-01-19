@@ -81,12 +81,15 @@
         autoHireEnabled: true,
         autoFireEnabled: false,
         autoHireDelay: 600,
+        autoHireMinWeeks: 4,
         autoPatrolZones: true,
         autoReanalyze: true,
         autoGenZones: true,
         patrolZoneSize: 15,
         patrolZoneOverlap: 2,
         smartHiringEnabled: true,
+        handymanPathTilesPerStaff: 75,
+        entertainerPathTilesPerStaff: 150,
         
         // Energy management
         energyManagement: true,
@@ -810,6 +813,7 @@
         zonesNeedRegeneration: true,
         lastStaffCount: 0,
         validHandymanZoneCount: 0,
+        parkStartMonthsElapsed: null,
         statistics: {
             totalStaff: 0,
             handymenCount: 0,
@@ -933,18 +937,36 @@
         checkAutoHire: function() {
             if (!CONFIG.autoHireEnabled) return;
             if (!NetworkHelper.canModifyGameState()) return;
+            
             try {
+                // Don't hire staff if park is closed
+                if (!park.getFlag('open')) return;
+                
+                // Track when the park first opened
+                if (this.parkStartMonthsElapsed === null) {
+                    this.parkStartMonthsElapsed = date.monthsElapsed;
+                }
+                
+                // Wait for configured number of weeks before auto-hiring
+                // 1 week = 2 months in RCT2 time (each month is 4 days, week is 7 days)
+                var weeksElapsed = (date.monthsElapsed - this.parkStartMonthsElapsed) / 2.0;
+                if (weeksElapsed < CONFIG.autoHireMinWeeks) return;
+                
                 var guestCount = this.statistics.totalStaff > 0 ? ParkAnalyzer.totalGuests : map.getAllEntities('guest').length;
                 
                 if (CONFIG.handymanAutoHire) {
-                    // Calculate target based on valid zones (owned, non-water areas)
-                    // Use validHandymanZoneCount if available, otherwise fall back to guest-based calculation
+                    // Calculate target based on path tiles (1 handyman per X path tiles)
                     var targetHandymen;
-                    if (this.validHandymanZoneCount > 0) {
-                        // Aim for 1 handyman per valid zone, respecting min/max limits
+                    if (ParkAnalyzer.totalPathTiles > 0 && CONFIG.handymanPathTilesPerStaff > 0) {
+                        // Use path-based calculation: 1 handyman per X path tiles
+                        targetHandymen = Math.max(CONFIG.handymanMinCount, 
+                            Math.min(CONFIG.handymanMaxCount, 
+                                Math.ceil(ParkAnalyzer.totalPathTiles / CONFIG.handymanPathTilesPerStaff)));
+                    } else if (this.validHandymanZoneCount > 0) {
+                        // Fallback to zone-based calculation
                         targetHandymen = Math.max(CONFIG.handymanMinCount, Math.min(CONFIG.handymanMaxCount, this.validHandymanZoneCount));
                     } else {
-                        // Fallback to guest-based calculation
+                        // Final fallback to guest-based calculation
                         targetHandymen = Math.max(CONFIG.handymanMinCount, Math.min(CONFIG.handymanMaxCount, Math.ceil(guestCount * CONFIG.handymanTargetRatio)));
                     }
                     if (this.handymen.length < targetHandymen) {
@@ -964,7 +986,17 @@
                     }
                 }
                 if (CONFIG.entertainerAutoHire) {
-                    var targetEntertainers = Math.max(CONFIG.entertainerMinCount, Math.min(CONFIG.entertainerMaxCount, Math.ceil(guestCount * CONFIG.entertainerTargetRatio)));
+                    // Calculate target based on path tiles (similar to handymen)
+                    var targetEntertainers;
+                    if (ParkAnalyzer.totalPathTiles > 0 && CONFIG.entertainerPathTilesPerStaff > 0) {
+                        // Use path-based calculation: 1 entertainer per X path tiles
+                        targetEntertainers = Math.max(CONFIG.entertainerMinCount, 
+                            Math.min(CONFIG.entertainerMaxCount, 
+                                Math.ceil(ParkAnalyzer.totalPathTiles / CONFIG.entertainerPathTilesPerStaff)));
+                    } else {
+                        // Fallback to guest-based calculation
+                        targetEntertainers = Math.max(CONFIG.entertainerMinCount, Math.min(CONFIG.entertainerMaxCount, Math.ceil(guestCount * CONFIG.entertainerTargetRatio)));
+                    }
                     if (this.entertainers.length < targetEntertainers) {
                         this.hireStaff('entertainer');
                     }
