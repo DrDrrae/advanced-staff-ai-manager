@@ -996,6 +996,39 @@
             });
         },
 
+        isZoneMostlyWater: function(x1, y1, x2, y2) {
+            // Sample tiles in the zone to determine if it's mostly water
+            // A zone is considered "mostly water" if >80% of sampled tiles are water
+            var sampleCount = 0;
+            var waterCount = 0;
+            var stepX = Math.max(1, Math.floor((x2 - x1) / 4)); // Sample ~5x5 grid
+            var stepY = Math.max(1, Math.floor((y2 - y1) / 4));
+            
+            try {
+                for (var x = x1; x <= x2; x += stepX) {
+                    for (var y = y1; y <= y2; y += stepY) {
+                        sampleCount++;
+                        var tile = map.getTile(Math.floor(x), Math.floor(y));
+                        if (tile && tile.elements && tile.elements.length > 0) {
+                            var surfaceElement = tile.elements[0];
+                            // Check if surface element has water
+                            if (surfaceElement && surfaceElement.type === 'surface') {
+                                if (surfaceElement.waterHeight > 0) {
+                                    waterCount++;
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (e) {
+                // If we can't check, assume it's not water to avoid breaking zones
+                return false;
+            }
+            
+            // Consider zone mostly water if >80% of samples are water
+            return sampleCount > 0 && (waterCount / sampleCount) > 0.8;
+        },
+
         setStaffPatrolArea: function(staffId, x1, y1, x2, y2, mode) {
             if (!NetworkHelper.canModifyGameState()) return;
             if (typeof staffId !== 'number' || staffId < 0) return;
@@ -1045,12 +1078,41 @@
             for (var i = 0; i < this.handymen.length; i++) {
                 var handyman = this.handymen[i];
                 if (!handyman || typeof handyman.id !== 'number') continue;
+                
+                // Find a non-water zone for this handyman
+                var assigned = false;
+                var attempts = 0;
                 var zoneIndex = i % totalZones;
-                var zx = zoneIndex % zonesX;
-                var zy = Math.floor(zoneIndex / zonesX);
-                this.setStaffPatrolArea(handyman.id, zx * zoneSize, zy * zoneSize, 
-                    Math.min((zx + 1) * zoneSize + CONFIG.patrolZoneOverlap, mapWidth - 1),
-                    Math.min((zy + 1) * zoneSize + CONFIG.patrolZoneOverlap, mapHeight - 1), 0);
+                
+                while (!assigned && attempts < totalZones) {
+                    var zx = zoneIndex % zonesX;
+                    var zy = Math.floor(zoneIndex / zonesX);
+                    var x1 = zx * zoneSize;
+                    var y1 = zy * zoneSize;
+                    var x2 = Math.min((zx + 1) * zoneSize + CONFIG.patrolZoneOverlap, mapWidth - 1);
+                    var y2 = Math.min((zy + 1) * zoneSize + CONFIG.patrolZoneOverlap, mapHeight - 1);
+                    
+                    // Check if zone is mostly water
+                    if (!this.isZoneMostlyWater(x1, y1, x2, y2)) {
+                        this.setStaffPatrolArea(handyman.id, x1, y1, x2, y2, 0);
+                        assigned = true;
+                    } else {
+                        // Try next zone
+                        zoneIndex = (zoneIndex + 1) % totalZones;
+                        attempts++;
+                    }
+                }
+                
+                // If all zones are water (unlikely), assign to center of map
+                if (!assigned) {
+                    var centerX = Math.floor(mapWidth / 2);
+                    var centerY = Math.floor(mapHeight / 2);
+                    this.setStaffPatrolArea(handyman.id, 
+                        Math.max(0, centerX - zoneSize / 2), 
+                        Math.max(0, centerY - zoneSize / 2),
+                        Math.min(mapWidth - 1, centerX + zoneSize / 2), 
+                        Math.min(mapHeight - 1, centerY + zoneSize / 2), 0);
+                }
             }
         },
 
@@ -1062,24 +1124,54 @@
             // Use ride tracker for better zone coverage
             var rideIds = Object.keys(RideTracker.knownRides);
             if (rideIds.length === 0) {
-                // Fallback to grid
+                // Fallback to grid - skip water zones
                 var zoneSize = CONFIG.patrolZoneSize * 2;
                 var zonesX = Math.ceil(mapWidth / zoneSize);
                 var totalZones = zonesX * Math.ceil(mapHeight / zoneSize);
                 for (var k = 0; k < this.mechanics.length; k++) {
                     var mech = this.mechanics[k];
                     if (!mech || typeof mech.id !== 'number') continue;
+                    
+                    // Find a non-water zone for this mechanic
+                    var assigned = false;
+                    var attempts = 0;
                     var zoneIndex = k % totalZones;
-                    var zx = zoneIndex % zonesX;
-                    var zy = Math.floor(zoneIndex / zonesX);
-                    this.setStaffPatrolArea(mech.id, zx * zoneSize, zy * zoneSize,
-                        Math.min((zx + 1) * zoneSize, mapWidth - 1),
-                        Math.min((zy + 1) * zoneSize, mapHeight - 1), 0);
+                    
+                    while (!assigned && attempts < totalZones) {
+                        var zx = zoneIndex % zonesX;
+                        var zy = Math.floor(zoneIndex / zonesX);
+                        var x1 = zx * zoneSize;
+                        var y1 = zy * zoneSize;
+                        var x2 = Math.min((zx + 1) * zoneSize, mapWidth - 1);
+                        var y2 = Math.min((zy + 1) * zoneSize, mapHeight - 1);
+                        
+                        // Check if zone is mostly water
+                        if (!this.isZoneMostlyWater(x1, y1, x2, y2)) {
+                            this.setStaffPatrolArea(mech.id, x1, y1, x2, y2, 0);
+                            assigned = true;
+                        } else {
+                            // Try next zone
+                            zoneIndex = (zoneIndex + 1) % totalZones;
+                            attempts++;
+                        }
+                    }
+                    
+                    // If all zones are water (unlikely), assign to center of map
+                    if (!assigned) {
+                        var centerX = Math.floor(mapWidth / 2);
+                        var centerY = Math.floor(mapHeight / 2);
+                        this.setStaffPatrolArea(mech.id, 
+                            Math.max(0, centerX - zoneSize / 2), 
+                            Math.max(0, centerY - zoneSize / 2),
+                            Math.min(mapWidth - 1, centerX + zoneSize / 2), 
+                            Math.min(mapHeight - 1, centerY + zoneSize / 2), 0);
+                    }
                 }
                 return;
             }
 
             // Assign mechanics to ride groups based on entrance/exit coverage
+            // Rides are unlikely to be in water, so no need to check
             var ridesPerMechanic = Math.ceil(rideIds.length / this.mechanics.length);
             for (var i = 0; i < this.mechanics.length; i++) {
                 var mechanic = this.mechanics[i];
