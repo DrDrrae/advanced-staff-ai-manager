@@ -809,6 +809,7 @@
         tickCounter: 0,
         zonesNeedRegeneration: true,
         lastStaffCount: 0,
+        validHandymanZoneCount: 0,
         statistics: {
             totalStaff: 0,
             handymenCount: 0,
@@ -936,7 +937,16 @@
                 var guestCount = this.statistics.totalStaff > 0 ? ParkAnalyzer.totalGuests : map.getAllEntities('guest').length;
                 
                 if (CONFIG.handymanAutoHire) {
-                    var targetHandymen = Math.max(CONFIG.handymanMinCount, Math.min(CONFIG.handymanMaxCount, Math.ceil(guestCount * CONFIG.handymanTargetRatio)));
+                    // Calculate target based on valid zones (owned, non-water areas)
+                    // Use validHandymanZoneCount if available, otherwise fall back to guest-based calculation
+                    var targetHandymen;
+                    if (this.validHandymanZoneCount > 0) {
+                        // Aim for 1 handyman per valid zone, respecting min/max limits
+                        targetHandymen = Math.max(CONFIG.handymanMinCount, Math.min(CONFIG.handymanMaxCount, this.validHandymanZoneCount));
+                    } else {
+                        // Fallback to guest-based calculation
+                        targetHandymen = Math.max(CONFIG.handymanMinCount, Math.min(CONFIG.handymanMaxCount, Math.ceil(guestCount * CONFIG.handymanTargetRatio)));
+                    }
                     if (this.handymen.length < targetHandymen) {
                         this.hireStaff('handyman');
                     }
@@ -1040,8 +1050,9 @@
                 return false;
             }
             
-            // Zone is valid only if less than 20% of samples are invalid (water, unowned, or missing)
-            return sampleCount > 0 && (invalidCount / sampleCount) < 0.2;
+            // Zone is valid only if less than 70% of samples are invalid (water, unowned, or missing)
+            // This threshold allows zones with some invalid tiles but mostly valid area
+            return sampleCount > 0 && (invalidCount / sampleCount) < 0.7;
         },
 
         setStaffPatrolArea: function(staffId, x1, y1, x2, y2, mode) {
@@ -1105,6 +1116,9 @@
                     validZones.push({ x1: x1, y1: y1, x2: x2, y2: y2 });
                 }
             }
+            
+            // Store the count of valid zones for auto-hire calculation
+            this.validHandymanZoneCount = validZones.length;
 
             // Assign handymen to valid zones, distributing evenly
             for (var i = 0; i < this.handymen.length; i++) {
