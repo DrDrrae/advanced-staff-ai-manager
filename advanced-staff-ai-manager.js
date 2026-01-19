@@ -984,7 +984,7 @@
             var args = {
                 autoPosition: true,
                 staffType: staffTypeNum,
-                entertainerType: entertainerType,
+                costumeIndex: entertainerType,
                 staffOrders: orders
             };
             var self = this;
@@ -1101,9 +1101,14 @@
                 }
 
                 if (minX !== Infinity) {
+                    // Convert world coordinates from getRideCoverage to tile coordinates
+                    var tileMinX = Math.floor(minX / 32);
+                    var tileMinY = Math.floor(minY / 32);
+                    var tileMaxX = Math.floor(maxX / 32);
+                    var tileMaxY = Math.floor(maxY / 32);
                     this.setStaffPatrolArea(mechanic.id, 
-                        Math.max(0, minX), Math.max(0, minY),
-                        Math.min(mapWidth - 1, maxX), Math.min(mapHeight - 1, maxY), 0);
+                        Math.max(0, tileMinX), Math.max(0, tileMinY),
+                        Math.min(mapWidth - 1, tileMaxX), Math.min(mapHeight - 1, tileMaxY), 0);
                 }
             }
         },
