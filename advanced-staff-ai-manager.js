@@ -1036,11 +1036,11 @@
                     }
                 }
             } catch (e) {
-                // If we can't check (e.g., out of bounds), consider zone invalid
+                // If we can't validate tiles (e.g., out of bounds), consider zone invalid
                 return false;
             }
             
-            // Zone is valid only if <20% of samples are invalid
+            // Zone is valid only if less than 20% of samples are invalid (water, unowned, or missing)
             return sampleCount > 0 && (invalidCount / sampleCount) < 0.2;
         },
 
