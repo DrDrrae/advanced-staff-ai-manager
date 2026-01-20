@@ -898,6 +898,7 @@
                         this.statistics.newRidesDetected++;
                         if (CONFIG.mechanicAutoHire && this.mechanics.length < CONFIG.mechanicMaxCount) {
                             this.hireStaff('mechanic');
+                            this.recordStaffHire('mechanic');
                             this.statistics.smartHires.mechanics++;
                             if (CONFIG.debugMode) {
                                 console.log('[Staff AI] Smart hire: Mechanic for new ride');
