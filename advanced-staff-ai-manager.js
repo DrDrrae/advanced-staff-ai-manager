@@ -880,66 +880,63 @@
             if (!CONFIG.smartHiringEnabled || !CONFIG.autoHireEnabled) return;
             if (!NetworkHelper.canModifyGameState()) return;
             
-            // Don't hire staff if park is closed
             try {
+                // Don't hire staff if park is closed
                 if (!park.getFlag('open')) return;
-            } catch (e) {
-                // If we can't check park status, don't hire
-                return;
-            }
 
-            // 1. Check for new rides -> hire mechanics
-            if (CONFIG.mechanicPerNewRide && RideTracker.checkForNewRides()) {
-                var newRides = RideTracker.getNewRides();
-                for (var i = 0; i < newRides.length; i++) {
-                    this.statistics.newRidesDetected++;
-                    if (CONFIG.mechanicAutoHire && this.mechanics.length < CONFIG.mechanicMaxCount) {
-                        this.hireStaff('mechanic');
-                        this.statistics.smartHires.mechanics++;
+                // 1. Check for new rides -> hire mechanics
+                if (CONFIG.mechanicPerNewRide && RideTracker.checkForNewRides()) {
+                    var newRides = RideTracker.getNewRides();
+                    for (var i = 0; i < newRides.length; i++) {
+                        this.statistics.newRidesDetected++;
+                        if (CONFIG.mechanicAutoHire && this.mechanics.length < CONFIG.mechanicMaxCount) {
+                            this.hireStaff('mechanic');
+                            this.statistics.smartHires.mechanics++;
+                            if (CONFIG.debugMode) {
+                                console.log('[Staff AI] Smart hire: Mechanic for new ride');
+                            }
+                        }
+                    }
+                    this.zonesNeedRegeneration = true;
+                }
+
+                // 2. Check crime level -> hire security
+                CrimeDetector.update();
+                this.statistics.crimeDetected = CrimeDetector.getCrimeLevel();
+                if (CONFIG.securityAutoHire && CrimeDetector.needsMoreSecurity()) {
+                    if (this.security.length < CONFIG.securityMaxCount) {
+                        this.hireStaff('security');
+                        this.statistics.smartHires.security++;
                         if (CONFIG.debugMode) {
-                            console.log('[Staff AI] Smart hire: Mechanic for new ride');
+                            console.log('[Staff AI] Smart hire: Security for crime level ' + this.statistics.crimeDetected);
                         }
                     }
                 }
-                this.zonesNeedRegeneration = true;
-            }
 
-            // 2. Check crime level -> hire security
-            CrimeDetector.update();
-            this.statistics.crimeDetected = CrimeDetector.getCrimeLevel();
-            if (CONFIG.securityAutoHire && CrimeDetector.needsMoreSecurity()) {
-                if (this.security.length < CONFIG.securityMaxCount) {
-                    this.hireStaff('security');
-                    this.statistics.smartHires.security++;
-                    if (CONFIG.debugMode) {
-                        console.log('[Staff AI] Smart hire: Security for crime level ' + this.statistics.crimeDetected);
+                // 3. Check guest disgust/litter feedback -> hire handymen
+                GuestFeedbackAnalyzer.update();
+                this.statistics.disgustComplaints = GuestFeedbackAnalyzer.disgustCount;
+                if (CONFIG.handymanAutoHire && GuestFeedbackAnalyzer.needsMoreHandymen()) {
+                    if (this.handymen.length < CONFIG.handymanMaxCount) {
+                        this.hireStaff('handyman');
+                        this.statistics.smartHires.handymen++;
+                        if (CONFIG.debugMode) {
+                            console.log('[Staff AI] Smart hire: Handyman for disgust complaints ' + this.statistics.disgustComplaints);
+                        }
                     }
                 }
-            }
 
-            // 3. Check guest disgust/litter feedback -> hire handymen
-            GuestFeedbackAnalyzer.update();
-            this.statistics.disgustComplaints = GuestFeedbackAnalyzer.disgustCount;
-            if (CONFIG.handymanAutoHire && GuestFeedbackAnalyzer.needsMoreHandymen()) {
-                if (this.handymen.length < CONFIG.handymanMaxCount) {
-                    this.hireStaff('handyman');
-                    this.statistics.smartHires.handymen++;
-                    if (CONFIG.debugMode) {
-                        console.log('[Staff AI] Smart hire: Handyman for disgust complaints ' + this.statistics.disgustComplaints);
+                // 4. Check happiness below 60% -> hire entertainers
+                if (CONFIG.entertainerAutoHire && GuestFeedbackAnalyzer.needsMoreEntertainers()) {
+                    if (this.entertainers.length < CONFIG.entertainerMaxCount) {
+                        this.hireStaff('entertainer');
+                        this.statistics.smartHires.entertainers++;
+                        if (CONFIG.debugMode) {
+                            console.log('[Staff AI] Smart hire: Entertainer for low happiness ' + GuestFeedbackAnalyzer.happinessPercent + '%');
+                        }
                     }
                 }
-            }
-
-            // 4. Check happiness below 60% -> hire entertainers
-            if (CONFIG.entertainerAutoHire && GuestFeedbackAnalyzer.needsMoreEntertainers()) {
-                if (this.entertainers.length < CONFIG.entertainerMaxCount) {
-                    this.hireStaff('entertainer');
-                    this.statistics.smartHires.entertainers++;
-                    if (CONFIG.debugMode) {
-                        console.log('[Staff AI] Smart hire: Entertainer for low happiness ' + GuestFeedbackAnalyzer.happinessPercent + '%');
-                    }
-                }
-            }
+            } catch (e) {}
         },
 
         checkAutoHire: function() {
