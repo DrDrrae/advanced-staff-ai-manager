@@ -879,6 +879,14 @@
         checkSmartHiring: function() {
             if (!CONFIG.smartHiringEnabled || !CONFIG.autoHireEnabled) return;
             if (!NetworkHelper.canModifyGameState()) return;
+            
+            // Don't hire staff if park is closed
+            try {
+                if (!park.getFlag('open')) return;
+            } catch (e) {
+                // If we can't check park status, don't hire
+                return;
+            }
 
             // 1. Check for new rides -> hire mechanics
             if (CONFIG.mechanicPerNewRide && RideTracker.checkForNewRides()) {
