@@ -911,8 +911,9 @@
                 CrimeDetector.update();
                 this.statistics.crimeDetected = CrimeDetector.getCrimeLevel();
                 if (CONFIG.securityAutoHire && CrimeDetector.needsMoreSecurity()) {
-                    if (this.security.length < CONFIG.securityMaxCount) {
+                    if (this.security.length < CONFIG.securityMaxCount && this.canHireStaffType('security')) {
                         this.hireStaff('security');
+                        this.recordStaffHire('security');
                         this.statistics.smartHires.security++;
                         if (CONFIG.debugMode) {
                             console.log('[Staff AI] Smart hire: Security for crime level ' + this.statistics.crimeDetected);
@@ -924,8 +925,9 @@
                 GuestFeedbackAnalyzer.update();
                 this.statistics.disgustComplaints = GuestFeedbackAnalyzer.disgustCount;
                 if (CONFIG.handymanAutoHire && GuestFeedbackAnalyzer.needsMoreHandymen()) {
-                    if (this.handymen.length < CONFIG.handymanMaxCount) {
+                    if (this.handymen.length < CONFIG.handymanMaxCount && this.canHireStaffType('handyman')) {
                         this.hireStaff('handyman');
+                        this.recordStaffHire('handyman');
                         this.statistics.smartHires.handymen++;
                         if (CONFIG.debugMode) {
                             console.log('[Staff AI] Smart hire: Handyman for disgust complaints ' + this.statistics.disgustComplaints);
@@ -935,8 +937,9 @@
 
                 // 4. Check happiness below 60% -> hire entertainers
                 if (CONFIG.entertainerAutoHire && GuestFeedbackAnalyzer.needsMoreEntertainers()) {
-                    if (this.entertainers.length < CONFIG.entertainerMaxCount) {
+                    if (this.entertainers.length < CONFIG.entertainerMaxCount && this.canHireStaffType('entertainer')) {
                         this.hireStaff('entertainer');
+                        this.recordStaffHire('entertainer');
                         this.statistics.smartHires.entertainers++;
                         if (CONFIG.debugMode) {
                             console.log('[Staff AI] Smart hire: Entertainer for low happiness ' + GuestFeedbackAnalyzer.happinessPercent + '%');
