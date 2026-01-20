@@ -81,12 +81,16 @@
         autoHireEnabled: true,
         autoFireEnabled: false,
         autoHireDelay: 600,
+        autoHireMinWeeks: 4,
+        autoHireCooldownWeeks: 1,
         autoPatrolZones: true,
         autoReanalyze: true,
         autoGenZones: true,
         patrolZoneSize: 15,
         patrolZoneOverlap: 2,
         smartHiringEnabled: true,
+        handymanPathTilesPerStaff: 75,
+        entertainerPathTilesPerStaff: 150,
         
         // Energy management
         energyManagement: true,
@@ -809,6 +813,14 @@
         tickCounter: 0,
         zonesNeedRegeneration: true,
         lastStaffCount: 0,
+        validHandymanZoneCount: 0,
+        parkStartMonthsElapsed: null,
+        lastHireMonths: {
+            handyman: null,
+            mechanic: null,
+            security: null,
+            entertainer: null
+        },
         statistics: {
             totalStaff: 0,
             handymenCount: 0,
@@ -874,89 +886,167 @@
         checkSmartHiring: function() {
             if (!CONFIG.smartHiringEnabled || !CONFIG.autoHireEnabled) return;
             if (!NetworkHelper.canModifyGameState()) return;
+            
+            try {
+                // Don't hire staff if park is closed
+                if (!park.getFlag('open')) return;
 
-            // 1. Check for new rides -> hire mechanics
-            if (CONFIG.mechanicPerNewRide && RideTracker.checkForNewRides()) {
-                var newRides = RideTracker.getNewRides();
-                for (var i = 0; i < newRides.length; i++) {
-                    this.statistics.newRidesDetected++;
-                    if (CONFIG.mechanicAutoHire && this.mechanics.length < CONFIG.mechanicMaxCount) {
-                        this.hireStaff('mechanic');
-                        this.statistics.smartHires.mechanics++;
+                // 1. Check for new rides -> hire mechanics
+                if (CONFIG.mechanicPerNewRide && RideTracker.checkForNewRides()) {
+                    var newRides = RideTracker.getNewRides();
+                    for (var i = 0; i < newRides.length; i++) {
+                        this.statistics.newRidesDetected++;
+                        if (CONFIG.mechanicAutoHire && this.mechanics.length < CONFIG.mechanicMaxCount) {
+                            this.hireStaff('mechanic');
+                            this.recordStaffHire('mechanic');
+                            this.statistics.smartHires.mechanics++;
+                            if (CONFIG.debugMode) {
+                                console.log('[Staff AI] Smart hire: Mechanic for new ride');
+                            }
+                        }
+                    }
+                    this.zonesNeedRegeneration = true;
+                }
+
+                // 2. Check crime level -> hire security
+                CrimeDetector.update();
+                this.statistics.crimeDetected = CrimeDetector.getCrimeLevel();
+                if (CONFIG.securityAutoHire && CrimeDetector.needsMoreSecurity()) {
+                    if (this.security.length < CONFIG.securityMaxCount && this.canHireStaffType('security')) {
+                        this.hireStaff('security');
+                        this.recordStaffHire('security');
+                        this.statistics.smartHires.security++;
                         if (CONFIG.debugMode) {
-                            console.log('[Staff AI] Smart hire: Mechanic for new ride');
+                            console.log('[Staff AI] Smart hire: Security for crime level ' + this.statistics.crimeDetected);
                         }
                     }
                 }
-                this.zonesNeedRegeneration = true;
-            }
 
-            // 2. Check crime level -> hire security
-            CrimeDetector.update();
-            this.statistics.crimeDetected = CrimeDetector.getCrimeLevel();
-            if (CONFIG.securityAutoHire && CrimeDetector.needsMoreSecurity()) {
-                if (this.security.length < CONFIG.securityMaxCount) {
-                    this.hireStaff('security');
-                    this.statistics.smartHires.security++;
-                    if (CONFIG.debugMode) {
-                        console.log('[Staff AI] Smart hire: Security for crime level ' + this.statistics.crimeDetected);
+                // 3. Check guest disgust/litter feedback -> hire handymen
+                GuestFeedbackAnalyzer.update();
+                this.statistics.disgustComplaints = GuestFeedbackAnalyzer.disgustCount;
+                if (CONFIG.handymanAutoHire && GuestFeedbackAnalyzer.needsMoreHandymen()) {
+                    if (this.handymen.length < CONFIG.handymanMaxCount && this.canHireStaffType('handyman')) {
+                        this.hireStaff('handyman');
+                        this.recordStaffHire('handyman');
+                        this.statistics.smartHires.handymen++;
+                        if (CONFIG.debugMode) {
+                            console.log('[Staff AI] Smart hire: Handyman for disgust complaints ' + this.statistics.disgustComplaints);
+                        }
                     }
                 }
-            }
 
-            // 3. Check guest disgust/litter feedback -> hire handymen
-            GuestFeedbackAnalyzer.update();
-            this.statistics.disgustComplaints = GuestFeedbackAnalyzer.disgustCount;
-            if (CONFIG.handymanAutoHire && GuestFeedbackAnalyzer.needsMoreHandymen()) {
-                if (this.handymen.length < CONFIG.handymanMaxCount) {
-                    this.hireStaff('handyman');
-                    this.statistics.smartHires.handymen++;
-                    if (CONFIG.debugMode) {
-                        console.log('[Staff AI] Smart hire: Handyman for disgust complaints ' + this.statistics.disgustComplaints);
+                // 4. Check happiness below 60% -> hire entertainers
+                if (CONFIG.entertainerAutoHire && GuestFeedbackAnalyzer.needsMoreEntertainers()) {
+                    if (this.entertainers.length < CONFIG.entertainerMaxCount && this.canHireStaffType('entertainer')) {
+                        this.hireStaff('entertainer');
+                        this.recordStaffHire('entertainer');
+                        this.statistics.smartHires.entertainers++;
+                        if (CONFIG.debugMode) {
+                            console.log('[Staff AI] Smart hire: Entertainer for low happiness ' + GuestFeedbackAnalyzer.happinessPercent + '%');
+                        }
                     }
                 }
-            }
+            } catch (e) {}
+        },
 
-            // 4. Check happiness below 60% -> hire entertainers
-            if (CONFIG.entertainerAutoHire && GuestFeedbackAnalyzer.needsMoreEntertainers()) {
-                if (this.entertainers.length < CONFIG.entertainerMaxCount) {
-                    this.hireStaff('entertainer');
-                    this.statistics.smartHires.entertainers++;
-                    if (CONFIG.debugMode) {
-                        console.log('[Staff AI] Smart hire: Entertainer for low happiness ' + GuestFeedbackAnalyzer.happinessPercent + '%');
-                    }
-                }
+        canHireStaffType: function(staffType) {
+            // Check if enough time has elapsed since last hire of this type
+            if (!CONFIG.autoHireCooldownWeeks || CONFIG.autoHireCooldownWeeks <= 0) {
+                return true; // No cooldown configured
             }
+            
+            var lastHire = this.lastHireMonths[staffType];
+            if (lastHire === null) {
+                return true; // Never hired this type before
+            }
+            
+            try {
+                // Calculate weeks elapsed since last hire
+                // In RCT2, approximately 2 months = 1 week, so divide months by 2 to get weeks
+                var weeksElapsed = (date.monthsElapsed - lastHire) / 2.0;
+                return weeksElapsed >= CONFIG.autoHireCooldownWeeks;
+            } catch (e) {
+                return true; // If we can't check, allow hiring
+            }
+        },
+
+        recordStaffHire: function(staffType) {
+            // Record the time when this staff type was hired
+            try {
+                this.lastHireMonths[staffType] = date.monthsElapsed;
+            } catch (e) {}
         },
 
         checkAutoHire: function() {
             if (!CONFIG.autoHireEnabled) return;
             if (!NetworkHelper.canModifyGameState()) return;
+            
             try {
+                // Don't hire staff if park is closed
+                if (!park.getFlag('open')) return;
+                
+                // Track when the park first opened
+                if (this.parkStartMonthsElapsed === null) {
+                    this.parkStartMonthsElapsed = date.monthsElapsed;
+                }
+                
+                // Wait for configured number of weeks before auto-hiring
+                // In RCT2, each month is 4 game days. A week is ~7 days, so approximately 2 months per week.
+                var weeksElapsed = (date.monthsElapsed - this.parkStartMonthsElapsed) / 2.0;
+                if (weeksElapsed < CONFIG.autoHireMinWeeks) return;
+                
                 var guestCount = this.statistics.totalStaff > 0 ? ParkAnalyzer.totalGuests : map.getAllEntities('guest').length;
                 
                 if (CONFIG.handymanAutoHire) {
-                    var targetHandymen = Math.max(CONFIG.handymanMinCount, Math.min(CONFIG.handymanMaxCount, Math.ceil(guestCount * CONFIG.handymanTargetRatio)));
-                    if (this.handymen.length < targetHandymen) {
+                    // Calculate target based on path tiles (1 handyman per X path tiles)
+                    var targetHandymen;
+                    if (ParkAnalyzer.totalPathTiles > 0 && CONFIG.handymanPathTilesPerStaff > 0) {
+                        // Use path-based calculation: 1 handyman per X path tiles
+                        targetHandymen = Math.max(CONFIG.handymanMinCount, 
+                            Math.min(CONFIG.handymanMaxCount, 
+                                Math.ceil(ParkAnalyzer.totalPathTiles / CONFIG.handymanPathTilesPerStaff)));
+                    } else if (this.validHandymanZoneCount > 0) {
+                        // Fallback to zone-based calculation
+                        targetHandymen = Math.max(CONFIG.handymanMinCount, Math.min(CONFIG.handymanMaxCount, this.validHandymanZoneCount));
+                    } else {
+                        // Final fallback to guest-based calculation
+                        targetHandymen = Math.max(CONFIG.handymanMinCount, Math.min(CONFIG.handymanMaxCount, Math.ceil(guestCount * CONFIG.handymanTargetRatio)));
+                    }
+                    if (this.handymen.length < targetHandymen && this.canHireStaffType('handyman')) {
                         this.hireStaff('handyman');
+                        this.recordStaffHire('handyman');
                     }
                 }
                 if (CONFIG.mechanicAutoHire) {
                     var targetMechanics = Math.max(CONFIG.mechanicMinCount, Math.min(CONFIG.mechanicMaxCount, Math.ceil(ParkAnalyzer.totalRides * CONFIG.mechanicTargetRatio)));
-                    if (this.mechanics.length < targetMechanics) {
+                    if (this.mechanics.length < targetMechanics && this.canHireStaffType('mechanic')) {
                         this.hireStaff('mechanic');
+                        this.recordStaffHire('mechanic');
                     }
                 }
                 if (CONFIG.securityAutoHire) {
                     var targetSecurity = Math.max(CONFIG.securityMinCount, Math.min(CONFIG.securityMaxCount, Math.ceil(guestCount * CONFIG.securityTargetRatio)));
-                    if (this.security.length < targetSecurity) {
+                    if (this.security.length < targetSecurity && this.canHireStaffType('security')) {
                         this.hireStaff('security');
+                        this.recordStaffHire('security');
                     }
                 }
                 if (CONFIG.entertainerAutoHire) {
-                    var targetEntertainers = Math.max(CONFIG.entertainerMinCount, Math.min(CONFIG.entertainerMaxCount, Math.ceil(guestCount * CONFIG.entertainerTargetRatio)));
-                    if (this.entertainers.length < targetEntertainers) {
+                    // Calculate target based on path tiles (similar to handymen)
+                    var targetEntertainers;
+                    if (ParkAnalyzer.totalPathTiles > 0 && CONFIG.entertainerPathTilesPerStaff > 0) {
+                        // Use path-based calculation: 1 entertainer per X path tiles
+                        targetEntertainers = Math.max(CONFIG.entertainerMinCount, 
+                            Math.min(CONFIG.entertainerMaxCount, 
+                                Math.ceil(ParkAnalyzer.totalPathTiles / CONFIG.entertainerPathTilesPerStaff)));
+                    } else {
+                        // Fallback to guest-based calculation
+                        targetEntertainers = Math.max(CONFIG.entertainerMinCount, Math.min(CONFIG.entertainerMaxCount, Math.ceil(guestCount * CONFIG.entertainerTargetRatio)));
+                    }
+                    if (this.entertainers.length < targetEntertainers && this.canHireStaffType('entertainer')) {
                         this.hireStaff('entertainer');
+                        this.recordStaffHire('entertainer');
                     }
                 }
             } catch (e) {}
@@ -984,7 +1074,7 @@
             var args = {
                 autoPosition: true,
                 staffType: staffTypeNum,
-                entertainerType: entertainerType,
+                costumeIndex: entertainerType,
                 staffOrders: orders
             };
             var self = this;
@@ -994,6 +1084,55 @@
                     self.zonesNeedRegeneration = true;
                 }
             });
+        },
+
+        isZoneValid: function(x1, y1, x2, y2) {
+            // Check if a zone is valid for patrol (not water, in owned area)
+            // A zone is invalid if >80% of sampled tiles are water OR not owned
+            var sampleCount = 0;
+            var invalidCount = 0;
+            var stepX = Math.max(1, Math.floor((x2 - x1) / 4)); // Sample at 5 points per dimension
+            var stepY = Math.max(1, Math.floor((y2 - y1) / 4));
+            
+            try {
+                for (var x = x1; x <= x2; x += stepX) {
+                    for (var y = y1; y <= y2; y += stepY) {
+                        sampleCount++;
+                        var tile = map.getTile(Math.floor(x), Math.floor(y));
+                        if (!tile || !tile.elements || tile.elements.length === 0) {
+                            // No tile or no elements - consider invalid
+                            invalidCount++;
+                            continue;
+                        }
+                        
+                        var surfaceElement = tile.elements[0];
+                        if (!surfaceElement || surfaceElement.type !== 'surface') {
+                            // No surface element - consider invalid
+                            invalidCount++;
+                            continue;
+                        }
+                        
+                        // Check if tile has water
+                        if (surfaceElement.waterHeight > 0) {
+                            invalidCount++;
+                            continue;
+                        }
+                        
+                        // Check if tile is owned
+                        if (!surfaceElement.hasOwnership) {
+                            invalidCount++;
+                            continue;
+                        }
+                    }
+                }
+            } catch (e) {
+                // If we can't validate tiles (e.g., out of bounds), consider zone invalid
+                return false;
+            }
+            
+            // Zone is valid only if less than 70% of samples are invalid (water, unowned, or missing)
+            // This threshold allows zones with some invalid tiles but mostly valid area
+            return sampleCount > 0 && (invalidCount / sampleCount) < 0.7;
         },
 
         setStaffPatrolArea: function(staffId, x1, y1, x2, y2, mode) {
@@ -1040,17 +1179,47 @@
             try { mapWidth = map.size.x; mapHeight = map.size.y; } catch (e) {}
             var zoneSize = CONFIG.patrolZoneSize;
             var zonesX = Math.ceil(mapWidth / zoneSize);
-            var totalZones = zonesX * Math.ceil(mapHeight / zoneSize);
+            var zonesY = Math.ceil(mapHeight / zoneSize);
+            var totalZones = zonesX * zonesY;
 
+            // Pre-scan to find all non-water zones
+            var validZones = [];
+            for (var zi = 0; zi < totalZones; zi++) {
+                var zx = zi % zonesX;
+                var zy = Math.floor(zi / zonesX);
+                var x1 = zx * zoneSize;
+                var y1 = zy * zoneSize;
+                var x2 = Math.min((zx + 1) * zoneSize + CONFIG.patrolZoneOverlap, mapWidth - 1);
+                var y2 = Math.min((zy + 1) * zoneSize + CONFIG.patrolZoneOverlap, mapHeight - 1);
+                
+                if (this.isZoneValid(x1, y1, x2, y2)) {
+                    validZones.push({ x1: x1, y1: y1, x2: x2, y2: y2 });
+                }
+            }
+            
+            // Store the count of valid zones for auto-hire calculation
+            this.validHandymanZoneCount = validZones.length;
+
+            // Assign handymen to valid zones, distributing evenly
             for (var i = 0; i < this.handymen.length; i++) {
                 var handyman = this.handymen[i];
                 if (!handyman || typeof handyman.id !== 'number') continue;
-                var zoneIndex = i % totalZones;
-                var zx = zoneIndex % zonesX;
-                var zy = Math.floor(zoneIndex / zonesX);
-                this.setStaffPatrolArea(handyman.id, zx * zoneSize, zy * zoneSize, 
-                    Math.min((zx + 1) * zoneSize + CONFIG.patrolZoneOverlap, mapWidth - 1),
-                    Math.min((zy + 1) * zoneSize + CONFIG.patrolZoneOverlap, mapHeight - 1), 0);
+                
+                if (validZones.length > 0) {
+                    // Distribute evenly across valid zones
+                    var zoneIdx = i % validZones.length;
+                    var zone = validZones[zoneIdx];
+                    this.setStaffPatrolArea(handyman.id, zone.x1, zone.y1, zone.x2, zone.y2, 0);
+                } else {
+                    // Fallback: if all zones are water, assign to center of map
+                    var centerX = Math.floor(mapWidth / 2);
+                    var centerY = Math.floor(mapHeight / 2);
+                    this.setStaffPatrolArea(handyman.id, 
+                        Math.max(0, centerX - zoneSize / 2), 
+                        Math.max(0, centerY - zoneSize / 2),
+                        Math.min(mapWidth - 1, centerX + zoneSize / 2), 
+                        Math.min(mapHeight - 1, centerY + zoneSize / 2), 0);
+                }
             }
         },
 
@@ -1062,24 +1231,53 @@
             // Use ride tracker for better zone coverage
             var rideIds = Object.keys(RideTracker.knownRides);
             if (rideIds.length === 0) {
-                // Fallback to grid
+                // Fallback to grid - skip water zones
                 var zoneSize = CONFIG.patrolZoneSize * 2;
                 var zonesX = Math.ceil(mapWidth / zoneSize);
-                var totalZones = zonesX * Math.ceil(mapHeight / zoneSize);
+                var zonesY = Math.ceil(mapHeight / zoneSize);
+                var totalZones = zonesX * zonesY;
+                
+                // Pre-scan to find all non-water zones
+                var validZones = [];
+                for (var zi = 0; zi < totalZones; zi++) {
+                    var zx = zi % zonesX;
+                    var zy = Math.floor(zi / zonesX);
+                    var x1 = zx * zoneSize;
+                    var y1 = zy * zoneSize;
+                    var x2 = Math.min((zx + 1) * zoneSize, mapWidth - 1);
+                    var y2 = Math.min((zy + 1) * zoneSize, mapHeight - 1);
+                    
+                    if (this.isZoneValid(x1, y1, x2, y2)) {
+                        validZones.push({ x1: x1, y1: y1, x2: x2, y2: y2 });
+                    }
+                }
+                
+                // Assign mechanics to valid zones, distributing evenly
                 for (var k = 0; k < this.mechanics.length; k++) {
                     var mech = this.mechanics[k];
                     if (!mech || typeof mech.id !== 'number') continue;
-                    var zoneIndex = k % totalZones;
-                    var zx = zoneIndex % zonesX;
-                    var zy = Math.floor(zoneIndex / zonesX);
-                    this.setStaffPatrolArea(mech.id, zx * zoneSize, zy * zoneSize,
-                        Math.min((zx + 1) * zoneSize, mapWidth - 1),
-                        Math.min((zy + 1) * zoneSize, mapHeight - 1), 0);
+                    
+                    if (validZones.length > 0) {
+                        // Distribute evenly across valid zones
+                        var zoneIdx = k % validZones.length;
+                        var zone = validZones[zoneIdx];
+                        this.setStaffPatrolArea(mech.id, zone.x1, zone.y1, zone.x2, zone.y2, 0);
+                    } else {
+                        // Fallback: if all zones are water, assign to center of map
+                        var centerX = Math.floor(mapWidth / 2);
+                        var centerY = Math.floor(mapHeight / 2);
+                        this.setStaffPatrolArea(mech.id, 
+                            Math.max(0, centerX - zoneSize / 2), 
+                            Math.max(0, centerY - zoneSize / 2),
+                            Math.min(mapWidth - 1, centerX + zoneSize / 2), 
+                            Math.min(mapHeight - 1, centerY + zoneSize / 2), 0);
+                    }
                 }
                 return;
             }
 
             // Assign mechanics to ride groups based on entrance/exit coverage
+            // Rides are unlikely to be in water, so no need to check
             var ridesPerMechanic = Math.ceil(rideIds.length / this.mechanics.length);
             for (var i = 0; i < this.mechanics.length; i++) {
                 var mechanic = this.mechanics[i];
@@ -1101,9 +1299,14 @@
                 }
 
                 if (minX !== Infinity) {
+                    // Convert world coordinates from getRideCoverage to tile coordinates
+                    var tileMinX = Math.floor(minX / 32);
+                    var tileMinY = Math.floor(minY / 32);
+                    var tileMaxX = Math.floor(maxX / 32);
+                    var tileMaxY = Math.floor(maxY / 32);
                     this.setStaffPatrolArea(mechanic.id, 
-                        Math.max(0, minX), Math.max(0, minY),
-                        Math.min(mapWidth - 1, maxX), Math.min(mapHeight - 1, maxY), 0);
+                        Math.max(0, tileMinX), Math.max(0, tileMinY),
+                        Math.min(mapWidth - 1, tileMaxX), Math.min(mapHeight - 1, tileMaxY), 0);
                 }
             }
         },
