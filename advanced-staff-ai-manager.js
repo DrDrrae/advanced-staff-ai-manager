@@ -958,7 +958,8 @@
             }
             
             try {
-                // Calculate weeks elapsed since last hire (~2 months per week in RCT2 time)
+                // Calculate weeks elapsed since last hire
+                // In RCT2, approximately 2 months = 1 week, so divide months by 2 to get weeks
                 var weeksElapsed = (date.monthsElapsed - lastHire) / 2.0;
                 return weeksElapsed >= CONFIG.autoHireCooldownWeeks;
             } catch (e) {
