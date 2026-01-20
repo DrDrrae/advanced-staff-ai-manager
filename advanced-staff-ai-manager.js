@@ -82,6 +82,7 @@
         autoFireEnabled: false,
         autoHireDelay: 600,
         autoHireMinWeeks: 4,
+        autoHireCooldownWeeks: 1,
         autoPatrolZones: true,
         autoReanalyze: true,
         autoGenZones: true,
@@ -814,6 +815,12 @@
         lastStaffCount: 0,
         validHandymanZoneCount: 0,
         parkStartMonthsElapsed: null,
+        lastHireMonths: {
+            handyman: null,
+            mechanic: null,
+            security: null,
+            entertainer: null
+        },
         statistics: {
             totalStaff: 0,
             handymenCount: 0,
@@ -939,6 +946,33 @@
             } catch (e) {}
         },
 
+        canHireStaffType: function(staffType) {
+            // Check if enough time has elapsed since last hire of this type
+            if (!CONFIG.autoHireCooldownWeeks || CONFIG.autoHireCooldownWeeks <= 0) {
+                return true; // No cooldown configured
+            }
+            
+            var lastHire = this.lastHireMonths[staffType];
+            if (lastHire === null) {
+                return true; // Never hired this type before
+            }
+            
+            try {
+                // Calculate weeks elapsed since last hire (~2 months per week in RCT2 time)
+                var weeksElapsed = (date.monthsElapsed - lastHire) / 2.0;
+                return weeksElapsed >= CONFIG.autoHireCooldownWeeks;
+            } catch (e) {
+                return true; // If we can't check, allow hiring
+            }
+        },
+
+        recordStaffHire: function(staffType) {
+            // Record the time when this staff type was hired
+            try {
+                this.lastHireMonths[staffType] = date.monthsElapsed;
+            } catch (e) {}
+        },
+
         checkAutoHire: function() {
             if (!CONFIG.autoHireEnabled) return;
             if (!NetworkHelper.canModifyGameState()) return;
@@ -974,20 +1008,23 @@
                         // Final fallback to guest-based calculation
                         targetHandymen = Math.max(CONFIG.handymanMinCount, Math.min(CONFIG.handymanMaxCount, Math.ceil(guestCount * CONFIG.handymanTargetRatio)));
                     }
-                    if (this.handymen.length < targetHandymen) {
+                    if (this.handymen.length < targetHandymen && this.canHireStaffType('handyman')) {
                         this.hireStaff('handyman');
+                        this.recordStaffHire('handyman');
                     }
                 }
                 if (CONFIG.mechanicAutoHire) {
                     var targetMechanics = Math.max(CONFIG.mechanicMinCount, Math.min(CONFIG.mechanicMaxCount, Math.ceil(ParkAnalyzer.totalRides * CONFIG.mechanicTargetRatio)));
-                    if (this.mechanics.length < targetMechanics) {
+                    if (this.mechanics.length < targetMechanics && this.canHireStaffType('mechanic')) {
                         this.hireStaff('mechanic');
+                        this.recordStaffHire('mechanic');
                     }
                 }
                 if (CONFIG.securityAutoHire) {
                     var targetSecurity = Math.max(CONFIG.securityMinCount, Math.min(CONFIG.securityMaxCount, Math.ceil(guestCount * CONFIG.securityTargetRatio)));
-                    if (this.security.length < targetSecurity) {
+                    if (this.security.length < targetSecurity && this.canHireStaffType('security')) {
                         this.hireStaff('security');
+                        this.recordStaffHire('security');
                     }
                 }
                 if (CONFIG.entertainerAutoHire) {
@@ -1002,8 +1039,9 @@
                         // Fallback to guest-based calculation
                         targetEntertainers = Math.max(CONFIG.entertainerMinCount, Math.min(CONFIG.entertainerMaxCount, Math.ceil(guestCount * CONFIG.entertainerTargetRatio)));
                     }
-                    if (this.entertainers.length < targetEntertainers) {
+                    if (this.entertainers.length < targetEntertainers && this.canHireStaffType('entertainer')) {
                         this.hireStaff('entertainer');
+                        this.recordStaffHire('entertainer');
                     }
                 }
             } catch (e) {}
